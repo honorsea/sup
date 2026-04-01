@@ -8,6 +8,7 @@ use std::{
     io,
     net::{SocketAddr, TcpStream, ToSocketAddrs},
     path::PathBuf,
+    process::Command,
     time::Duration,
 };
 use tauri::{
@@ -118,6 +119,23 @@ fn is_network_available() -> bool {
     TcpStream::connect_timeout(&addr, Duration::from_secs(2)).is_ok()
 }
 
+fn encode_for_data_url(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for b in input.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(char::from(b))
+            }
+            b' ' => out.push_str("%20"),
+            _ => {
+                out.push('%');
+                out.push_str(&format!("{:02X}", b));
+            }
+        }
+    }
+    out
+}
+
 #[command]
 fn save_snapshot(app: AppHandle, snapshot: String) -> Result<(), String> {
     let path = snapshot_path(&app)?;
@@ -141,7 +159,28 @@ fn get_snapshot(app: AppHandle) -> Result<String, String> {
 
 #[command]
 fn open_external(url: String) -> Result<(), String> {
-    tauri::webbrowser::open(&url)
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = Command::new("cmd");
+        c.args(["/C", "start", "", &url]);
+        c
+    };
+
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = Command::new("open");
+        c.arg(&url);
+        c
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut cmd = {
+        let mut c = Command::new("xdg-open");
+        c.arg(&url);
+        c
+    };
+
+    cmd.spawn()
         .map(|_| ())
         .map_err(|e| format!("failed to open URL: {e}"))
 }
@@ -156,7 +195,7 @@ pub fn run() {
             let url = if is_network_available() {
                 WebviewUrl::External(WHATSAPP_URL.parse().unwrap())
             } else {
-                let encoded = urlencoding::encode(OFFLINE_HTML).to_string();
+                let encoded = encode_for_data_url(OFFLINE_HTML);
                 WebviewUrl::External(format!("data:text/html;charset=utf-8,{encoded}").parse().unwrap())
             };
 
