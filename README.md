@@ -1,7 +1,10 @@
-# Tauri + Vanilla TS
-
-This template should help get you started developing with Tauri in vanilla HTML, CSS and Typescript.
-
-## Recommended IDE Setup
-
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+# sup
+## Tauri Based WhatsApp Web Client
+Features:
+* Fast, performant, and ultra lightweight.
+* Organized, structured, and modular codebase.
+* Maximum battery and power efficiency.
+* Tracking-blocking using adblock-rust (Brave's Rust-based adblock engine.)
+* Offline support.
+    * Loads already downloaded chats, messages, and content when launched without a connection.
+* Native system tray, notification, and unread badge support.
