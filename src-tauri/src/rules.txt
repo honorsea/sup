@@ -1,0 +1,47 @@
+! EasyPrivacy essential tracker rules — bundled with sup
+!
+! IMPORTANT SAFETY NOTE:
+! This list must ONLY contain genuine third-party trackers that WhatsApp Web
+! has no operational dependency on. Do NOT block any Meta/Facebook infrastructure
+! (graph.facebook.com, connect.facebook.net, etc.) because:
+!   1. WhatsApp Web uses Meta infrastructure for authentication and session
+!      management. Blocking it can break functionality.
+!   2. Sudden cessation of Meta telemetry from a "browser" can trigger
+!      anomaly detection and flag the session as a bot/unofficial client.
+!
+! The adblock engine runs in the Rust process and intercepts at the network
+! protocol level (via custom URI scheme handlers), not inside the WebView.
+
+! === Google Analytics ===
+||google-analytics.com^$third-party
+||analytics.google.com^$third-party
+||ssl.google-analytics.com^$third-party
+||stats.g.doubleclick.net^$third-party
+
+! === Google Ads (not needed by WhatsApp Web) ===
+||adservice.google.com^
+||pagead2.googlesyndication.com^
+
+! === Scorecard / Nielsen ===
+||scorecardresearch.com^$third-party
+||pixel.quantserve.com^$third-party
+
+! === Amplitude / Heap / Mixpanel (pure analytics, not used by WhatsApp Web) ===
+||cdn.heapanalytics.com^
+||cdn.amplitude.com^$third-party
+||api.amplitude.com^$third-party
+||api.mixpanel.com^$third-party
+||cdn.mxpnl.com^$third-party
+
+! === Segment (third-party analytics) ===
+||cdn.segment.com^$third-party
+||api.segment.io^$third-party
+
+! NOTE: We intentionally do NOT block:
+!   - graph.facebook.com     (WhatsApp auth/session)
+!   - connect.facebook.net   (WhatsApp Web scripts)
+!   - *.whatsapp.com         (obviously)
+!   - *.whatsapp.net         (WhatsApp media/CDN)
+!   - *.fbcdn.net            (Facebook CDN used by WhatsApp)
+!   - crashlytics.com        (WhatsApp uses this for crash reporting)
+!   - sentry.io              (may be used by WhatsApp Web)

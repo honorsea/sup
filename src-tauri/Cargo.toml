@@ -1,25 +1,46 @@
 [package]
 name = "sup"
 version = "0.1.0"
-description = "A Tauri App"
+description = "A WhatsApp Web client"
 authors = ["you"]
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "sup_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-opener = "2"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+tauri = { version = "2", features = ["tray-icon", "image-ico", "image-png"] }
+# adblock: disable default features (full-regex-handling, single-thread) —
+# we only need the network-request checker with domain resolution.
+# `single-thread` would make the engine non-Send so we disable it.
+adblock = { version = "0.12.1", default-features = false, features = ["embedded-domain-resolver"] }
+# once_cell replaced by std::sync::OnceLock in Rust 1.70+ but kept for
+# broad compatibility; its overhead is a single atomic read after init.
+once_cell = "1"
+# tokio is Tauri's own async runtime; we add it directly only to access
+# tokio::time::sleep in our polling task. Since Tauri already depends on it,
+# this adds zero extra binary weight — cargo deduplicates the dependency.
+tokio = { version = "1", default-features = false, features = ["time"] }
 
+# ── Release profile: maximum binary speed + smallest binary size ──────────────
+[profile.release]
+# LTO links all crates together, enabling cross-crate inlining and dead-code
+# elimination. "thin" is a good default; use "fat" for maximum but slow builds.
+lto = "thin"
+# Single codegen unit forces LLVM to see the entire program at once.
+# Slower to compile but produces faster, smaller output.
+codegen-units = 1
+# Highest optimization level.
+opt-level = 3
+# Strip debug symbols from the release binary (saves ~1-3 MB).
+strip = "symbols"
+# Abort on panic instead of unwinding — saves ~20 KB and is slightly faster.
+# If a panic occurs the process just exits (acceptable for a desktop app).
+panic = "abort"
