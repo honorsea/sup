@@ -28,6 +28,7 @@ once_cell = "1"
 # tokio::time::sleep in our polling task. Since Tauri already depends on it,
 # this adds zero extra binary weight — cargo deduplicates the dependency.
 tokio = { version = "1", default-features = false, features = ["time"] }
+urlencoding = "2"
 
 # ── Release profile: maximum binary speed + smallest binary size ──────────────
 [profile.release]
