@@ -20,7 +20,7 @@ use std::borrow::Cow;
 use std::time::Duration;
 use tauri::{Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
-const CONTENT_JS: &str = include_str!("inject/content.js");
+const CONTENT_JS: &str = include_str!("content.js");
 
 // ─── Badge ────────────────────────────────────────────────────────────────────
 
