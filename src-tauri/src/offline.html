@@ -19,9 +19,8 @@
   <body>
     <div class="wrap">
       <div class="card">
-        <h1>You are offline</h1>
-        <div class="meta">Showing the latest local snapshot from your previous online session.</div>
-        <button id="retry">Retry online</button>
+        <h1>Local cache mode</h1>
+        <div class="meta">This build only reads local cached snapshot data from app storage.</div>
       </div>
       <div class="card">
         <h2>Chats (cached)</h2>
@@ -51,10 +50,6 @@
           setText("chats", (snapshot.chats || []).join("\n\n"));
           setText("messages", (snapshot.messages || []).join("\n\n"));
         }
-
-        document.getElementById("retry").addEventListener("click", function () {
-          location.href = "https://web.whatsapp.com";
-        });
 
         var invoke = resolveInvoke();
         if (invoke) {

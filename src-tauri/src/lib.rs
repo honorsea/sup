@@ -6,7 +6,6 @@ use std::{
     borrow::Cow,
     fs,
     io,
-    net::{SocketAddr, TcpStream, ToSocketAddrs},
     path::PathBuf,
     process::Command,
     time::Duration,
@@ -18,7 +17,6 @@ use tauri::{
 const CONTENT_JS: &str = include_str!("content.js");
 const OFFLINE_HTML: &str = include_str!("offline.html");
 const SNAPSHOT_FILE: &str = "offline_snapshot.json";
-const WHATSAPP_URL: &str = "https://web.whatsapp.com";
 
 #[inline]
 fn set_badge<R: Runtime>(window: &WebviewWindow<R>, count: Option<i64>) {
@@ -109,16 +107,6 @@ fn set_persistent_webview_data_dir<R: Runtime>(app: &AppHandle<R>) -> Result<(),
     Ok(())
 }
 
-fn is_network_available() -> bool {
-    let addr = ("web.whatsapp.com", 443)
-        .to_socket_addrs()
-        .ok()
-        .and_then(|mut addrs| addrs.next())
-        .unwrap_or_else(|| SocketAddr::from(([1, 1, 1, 1], 443)));
-
-    TcpStream::connect_timeout(&addr, Duration::from_secs(2)).is_ok()
-}
-
 fn encode_for_data_url(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     for b in input.bytes() {
@@ -192,12 +180,12 @@ pub fn run() {
         .setup(|app| {
             let _ = set_persistent_webview_data_dir(app.handle());
 
-            let url = if is_network_available() {
-                WebviewUrl::External(WHATSAPP_URL.parse().unwrap())
-            } else {
-                let encoded = encode_for_data_url(OFFLINE_HTML);
-                WebviewUrl::External(format!("data:text/html;charset=utf-8,{encoded}").parse().unwrap())
-            };
+            let encoded = encode_for_data_url(OFFLINE_HTML);
+            let url = WebviewUrl::External(
+                format!("data:text/html;charset=utf-8,{encoded}")
+                    .parse()
+                    .unwrap(),
+            );
 
             WebviewWindowBuilder::new(app, "main", url)
                 .title("sup")
