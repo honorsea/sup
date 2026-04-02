@@ -5,13 +5,20 @@
   var SNAPSHOT_DEBOUNCE_MS = 1200;
   var snapshotTimer = null;
 
-  function canInvoke() {
-    return !!(window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke);
+  function resolveInvoke() {
+    if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
+      return window.__TAURI__.core.invoke;
+    }
+    if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke) {
+      return window.__TAURI_INTERNALS__.invoke;
+    }
+    return null;
   }
 
   function invoke(cmd, payload) {
-    if (!canInvoke()) return Promise.resolve(null);
-    return window.__TAURI__.core.invoke(cmd, payload || {});
+    var inv = resolveInvoke();
+    if (!inv) return Promise.resolve(null);
+    return inv(cmd, payload || {});
   }
 
   function readUnread() {
@@ -28,16 +35,22 @@
   }
 
   function buildSnapshot() {
-    var chatNodes = document.querySelectorAll('[data-testid="cell-frame-container"]');
+    var chatNodes = document.querySelectorAll(
+      '[data-testid="cell-frame-container"], [role="listitem"], #pane-side [tabindex]'
+    );
     var chats = [];
     for (var i = 0; i < chatNodes.length && i < 80; i++) {
-      chats.push(chatNodes[i].innerText || "");
+      var chatText = (chatNodes[i].innerText || "").trim();
+      if (chatText) chats.push(chatText);
     }
 
-    var msgNodes = document.querySelectorAll('[data-testid^="msg-"]');
+    var msgNodes = document.querySelectorAll(
+      '[data-testid^="msg-"], [data-pre-plain-text], #main [role="row"], #main [tabindex]'
+    );
     var messages = [];
     for (var j = 0; j < msgNodes.length && j < 300; j++) {
-      messages.push(msgNodes[j].innerText || "");
+      var msgText = (msgNodes[j].innerText || "").trim();
+      if (msgText) messages.push(msgText);
     }
 
     return JSON.stringify({
@@ -49,7 +62,7 @@
   }
 
   function queueSnapshotWrite() {
-    if (!canInvoke()) return;
+    if (!resolveInvoke()) return;
     if (snapshotTimer) clearTimeout(snapshotTimer);
     snapshotTimer = setTimeout(function () {
       invoke("save_snapshot", { snapshot: buildSnapshot() }).catch(function () {});
@@ -58,7 +71,7 @@
 
   function setupSnapshotObserver() {
     var root = document.body || document.documentElement;
-    if (!root) return;
+    if (!root) return false;
 
     queueSnapshotWrite();
     new MutationObserver(queueSnapshotWrite).observe(root, {
@@ -66,6 +79,7 @@
       subtree: true,
       characterData: true,
     });
+    return true;
   }
 
   function setupExternalLinkRouting() {
@@ -117,6 +131,15 @@
     });
   }
 
-  setupSnapshotObserver();
+  if (!setupSnapshotObserver()) {
+    document.addEventListener(
+      "DOMContentLoaded",
+      function () {
+        setupSnapshotObserver();
+      },
+      { once: true }
+    );
+    setTimeout(setupSnapshotObserver, 1200);
+  }
   setupExternalLinkRouting();
 })();

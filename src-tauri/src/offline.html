@@ -35,6 +35,12 @@
 
     <script>
       (function () {
+        function resolveInvoke() {
+          if (window.__TAURI__?.core?.invoke) return window.__TAURI__.core.invoke;
+          if (window.__TAURI_INTERNALS__?.invoke) return window.__TAURI_INTERNALS__.invoke;
+          return null;
+        }
+
         function setText(id, value) {
           var el = document.getElementById(id);
           el.textContent = value && value.trim() ? value : el.textContent;
@@ -50,9 +56,9 @@
           location.href = "https://web.whatsapp.com";
         });
 
-        if (window.__TAURI__?.core?.invoke) {
-          window.__TAURI__.core
-            .invoke("get_snapshot")
+        var invoke = resolveInvoke();
+        if (invoke) {
+          invoke("get_snapshot")
             .then(function (payload) {
               try {
                 render(JSON.parse(payload));
