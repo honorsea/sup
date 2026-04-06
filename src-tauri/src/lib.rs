@@ -1,31 +1,23 @@
 // src-tauri/src/lib.rs
-//
-// sup — Tauri WhatsApp Web client
-//
-// Architecture:
-//   • Window loads web.whatsapp.com directly via WebviewUrl::External.
-//   • content.js (injected at startup) observes document.title via
-//     MutationObserver and writes the unread count to window.__sup_unread__.
-//   • A tokio green task polls window.title() from the Rust side every
-//     3 s (visible) or 15 s (hidden/minimized) and updates the taskbar
-//     badge and tray tooltip when the count changes.
-//   • No Tauri IPC commands are exposed to the page (withGlobalTauri: false).
-//   • Tracker blocking: adblock engine initialized in the background thread
-//     pool, ready for future WebView2 network interception support.
-
 mod blocker;
 mod tray;
 
-use std::borrow::Cow;
-use std::time::Duration;
-use tauri::{Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use std::{
+    borrow::Cow,
+    fs,
+    io,
+    path::PathBuf,
+    process::Command,
+    time::Duration,
+};
+use tauri::{
+    command, AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+};
 
 const CONTENT_JS: &str = include_str!("content.js");
+const OFFLINE_HTML: &str = include_str!("offline.html");
+const SNAPSHOT_FILE: &str = "offline_snapshot.json";
 
-// ─── Badge ────────────────────────────────────────────────────────────────────
-
-/// Update the taskbar/dock badge for the given window.
-/// Compiled away on platforms that support neither badge API.
 #[inline]
 fn set_badge<R: Runtime>(window: &WebviewWindow<R>, count: Option<i64>) {
     #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -33,14 +25,9 @@ fn set_badge<R: Runtime>(window: &WebviewWindow<R>, count: Option<i64>) {
     let _ = (window, count);
 }
 
-// ─── Unread Polling ───────────────────────────────────────────────────────────
+const FAST_POLL: Duration = Duration::from_secs(3);
+const SLOW_POLL: Duration = Duration::from_secs(15);
 
-const FAST_POLL: Duration = Duration::from_secs(3); // window visible
-const SLOW_POLL: Duration = Duration::from_secs(15); // window hidden / minimized
-
-/// Parse "(42) WhatsApp" → 42, anything else → 0.
-/// Fast-rejects on the first character to avoid any parsing in the common
-/// "no unread" case where the title is simply "WhatsApp".
 #[inline]
 fn parse_unread(title: &str) -> i64 {
     if !title.starts_with('(') {
@@ -54,17 +41,11 @@ fn parse_unread(title: &str) -> i64 {
         .unwrap_or(0)
 }
 
-/// Spawns a tokio green task that polls the window title and updates the
-/// taskbar badge + tray tooltip whenever the unread count changes.
-///
-/// Uses adaptive sleep: 3 s when the window is visible (badge update matters
-/// immediately), 15 s when hidden/minimized (saves CPU wakeups).
 fn start_poller<R: Runtime + 'static>(app: tauri::AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
-        let mut last: i64 = -1; // -1 forces an update on the first iteration
+        let mut last: i64 = -1;
 
         loop {
-            // Choose sleep duration based on current window visibility.
             let interval = app
                 .get_webview_window("main")
                 .map(|w| {
@@ -91,14 +72,12 @@ fn start_poller<R: Runtime + 'static>(app: tauri::AppHandle<R>) {
             };
 
             if count == last {
-                continue; // nothing changed — skip all system calls
+                continue;
             }
             last = count;
 
-            // Taskbar badge
             set_badge(&window, (count > 0).then_some(count));
 
-            // Tray tooltip — Cow avoids a heap allocation in the common (0) case.
             let tip: Cow<'static, str> = if count > 0 {
                 Cow::Owned(format!("sup — {} unread", count))
             } else {
@@ -111,34 +90,118 @@ fn start_poller<R: Runtime + 'static>(app: tauri::AppHandle<R>) {
     });
 }
 
-// ─── Entry Point ──────────────────────────────────────────────────────────────
+fn app_data_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map_err(|e| format!("failed to resolve app data dir: {e}"))
+}
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+fn snapshot_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    Ok(app_data_dir(app)?.join(SNAPSHOT_FILE))
+}
+
+fn set_persistent_webview_data_dir<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    let dir = app_data_dir(app)?.join("webview");
+    fs::create_dir_all(&dir).map_err(|e| format!("failed to create webview dir: {e}"))?;
+    std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", dir);
+    Ok(())
+}
+
+fn encode_for_data_url(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for b in input.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(char::from(b))
+            }
+            b' ' => out.push_str("%20"),
+            _ => {
+                out.push('%');
+                out.push_str(&format!("{:02X}", b));
+            }
+        }
+    }
+    out
+}
+
+#[command]
+fn save_snapshot(app: AppHandle, snapshot: String) -> Result<(), String> {
+    let path = snapshot_path(&app)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("failed to create data dir: {e}"))?;
+    }
+    fs::write(path, snapshot).map_err(|e| format!("failed to write snapshot: {e}"))
+}
+
+#[command]
+fn get_snapshot(app: AppHandle) -> Result<String, String> {
+    let path = snapshot_path(&app)?;
+    fs::read_to_string(path).map_err(|e| match e.kind() {
+        io::ErrorKind::NotFound => {
+            "No offline data available yet. Connect once to WhatsApp Web to build a cache snapshot."
+                .to_string()
+        }
+        _ => format!("failed to read snapshot: {e}"),
+    })
+}
+
+#[command]
+fn open_external(url: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = Command::new("cmd");
+        c.args(["/C", "start", "", &url]);
+        c
+    };
+
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = Command::new("open");
+        c.arg(&url);
+        c
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut cmd = {
+        let mut c = Command::new("xdg-open");
+        c.arg(&url);
+        c
+    };
+
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|e| format!("failed to open URL: {e}"))
+}
+
 pub fn run() {
-    // Warm up the adblock engine in the background — hidden behind startup.
     tauri::async_runtime::spawn_blocking(blocker::init);
 
     tauri::Builder::default()
         .setup(|app| {
-            WebviewWindowBuilder::new(
-                app,
-                "main",
-                WebviewUrl::External("https://web.whatsapp.com".parse().unwrap()),
-            )
-            .title("sup")
-            .inner_size(1280.0, 840.0)
-            .min_inner_size(800.0, 600.0)
-            .center()
-            .resizable(true)
-            .initialization_script(CONTENT_JS)
-            .build()?;
+            let _ = set_persistent_webview_data_dir(app.handle());
+
+            let encoded = encode_for_data_url(OFFLINE_HTML);
+            let url = WebviewUrl::External(
+                format!("data:text/html;charset=utf-8,{encoded}")
+                    .parse()
+                    .unwrap(),
+            );
+
+            WebviewWindowBuilder::new(app, "main", url)
+                .title("sup")
+                .inner_size(1280.0, 840.0)
+                .min_inner_size(800.0, 600.0)
+                .center()
+                .resizable(true)
+                .initialization_script(CONTENT_JS)
+                .build()?;
 
             tray::setup_tray(app.handle())?;
             start_poller(app.handle().clone());
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![])
+        .invoke_handler(tauri::generate_handler![save_snapshot, get_snapshot, open_external])
         .run(tauri::generate_context!())
         .expect("error while running sup");
 }

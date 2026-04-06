@@ -16,7 +16,7 @@ crate-type = ["cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-ico", "image-png"] }
+tauri = { version = "2", features = ["tray-icon", "image-ico", "image-png", "webview-data-url"] }
 # adblock: disable default features (full-regex-handling, single-thread) —
 # we only need the network-request checker with domain resolution.
 # `single-thread` would make the engine non-Send so we disable it.
